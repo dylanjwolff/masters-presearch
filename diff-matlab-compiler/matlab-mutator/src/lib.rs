@@ -1,9 +1,11 @@
-#![feature(box_syntax, box_patterns)]
 use rand::Rng;
 extern crate rand_xoshiro;
 use rand_xoshiro::rand_core::SeedableRng;
+extern crate log;
 extern crate regex;
+use regex::Match;
 
+use log::info;
 #[cfg(test)]
 extern crate quickcheck;
 #[cfg(test)]
@@ -13,10 +15,11 @@ extern crate quickcheck_macros;
 
 pub fn flip_op<T: Rng>(_script_contents: String, _rng: &mut T) {}
 
-pub fn find_candidate_indices(script_contents: String) -> Vec<usize> {
-    let re = create_re(box CANDIDATES.iter());
-    regex::Regex::new(&re);
-    return vec![1];
+pub fn find_candidate_indices(script_contents: &String) -> Vec<Match> {
+    let re = create_re(&CANDIDATES);
+    let re = regex::Regex::new(&re).unwrap();
+
+    re.find_iter(script_contents).collect()
 }
 
 fn to_re_char(c: char) -> String {
@@ -26,11 +29,15 @@ fn to_re_char(c: char) -> String {
     }
 }
 
-fn create_re(cs: Box<Iterator<Item = &char>>) -> String {
-    (*cs).join('|');
-    return "".to_string();
+fn create_re(cs: &[char]) -> String {
+    let re = cs
+        .iter()
+        .map(|c| to_re_char(*c))
+        .collect::<Vec<String>>()
+        .join("|");
+    return re;
 }
-pub static CANDIDATES: [char; 1] = ['*'];
+pub static CANDIDATES: [char; 3] = ['/', '*', '-'];
 
 #[cfg(test)]
 mod tests {
@@ -38,7 +45,7 @@ mod tests {
 
     #[quickcheck]
     fn create_re_test(c: char) -> bool {
-        let re = create_re(box CANDIDATES.iter());
+        let re = create_re(&CANDIDATES);
         if CANDIDATES.contains(&c) {
             regex::Regex::new(&re)
                 .unwrap()
@@ -71,7 +78,9 @@ mod tests {
     }
 
     #[quickcheck]
-    fn smoke_find(sc: String) {
-        find_candidate_indices(sc);
+    fn find_gets_correct(sc: String) -> bool {
+        find_candidate_indices(&sc)
+            .iter()
+            .all(|mat| CANDIDATES.contains(&mat.as_str().chars().nth(0).unwrap()))
     }
 }
