@@ -6,14 +6,34 @@ extern crate regex;
 use regex::Match;
 
 use log::info;
+use rand::seq::IteratorRandom;
+use std::iter::repeat;
 #[cfg(test)]
 extern crate quickcheck;
 #[cfg(test)]
 #[macro_use(quickcheck)]
 extern crate quickcheck_macros;
-#[cfg(test)]
 
-pub fn flip_op<T: Rng>(_script_contents: String, _rng: &mut T) {}
+pub fn flip_ops<T: Rng>(script_contents: String, rng: &mut T, num_to_flip: usize) -> String {
+    let mats = find_candidate_indices(&script_contents);
+    let mats_to_flip = mats.into_iter().choose_multiple(rng, num_to_flip);
+    let repments = mats_to_flip
+        .iter()
+        .map(|mat| (mat, *CANDIDATES.iter().choose(rng).unwrap()))
+        .collect();
+    replace(script_contents.clone(), repments)
+}
+
+pub fn replace(sc: String, replacements: Vec<(&Match, char)>) -> String {
+    let mut bytes = sc.into_bytes();
+
+    for (mat, new) in replacements {
+        let newb = new.to_string().into_bytes();
+        bytes.splice(mat.range(), newb);
+    }
+
+    String::from_utf8(bytes).expect("Expected valid replacement string")
+}
 
 pub fn find_candidate_indices(script_contents: &String) -> Vec<Match> {
     let re = create_re(&CANDIDATES);
@@ -25,6 +45,7 @@ pub fn find_candidate_indices(script_contents: &String) -> Vec<Match> {
 fn to_re_char(c: char) -> String {
     match c {
         '*' => r"\*".to_string(),
+        '+' => r"\+".to_string(),
         _ => c.to_string(),
     }
 }
@@ -37,7 +58,7 @@ fn create_re(cs: &[char]) -> String {
         .join("|");
     return re;
 }
-pub static CANDIDATES: [char; 3] = ['/', '*', '-'];
+pub static CANDIDATES: [char; 4] = ['/', '*', '-', '+'];
 
 #[cfg(test)]
 mod tests {
@@ -74,7 +95,7 @@ mod tests {
     #[quickcheck]
     fn smoke_flip(sc: String) {
         let mut rng = rand_xoshiro::Xoshiro256Plus::seed_from_u64(9999);
-        flip_op(sc, &mut rng);
+        flip_ops(sc, &mut rng, 2);
     }
 
     #[quickcheck]
@@ -82,5 +103,20 @@ mod tests {
         find_candidate_indices(&sc)
             .iter()
             .all(|mat| CANDIDATES.contains(&mat.as_str().chars().nth(0).unwrap()))
+    }
+
+    #[quickcheck]
+    fn qc_replace(sc: String) {
+        let c = '*';
+        let mats = find_candidate_indices(&sc);
+        let repments = mats.iter().zip(repeat(c)).collect();
+        let news = replace(sc.clone(), repments);
+
+        for mat in mats {
+            let bv = news.bytes().collect::<Vec<u8>>();
+            let repment = (&bv[mat.range()]).to_vec();
+            let repment_str = String::from_utf8(repment).expect("Fail to get replacement in test!");
+            assert!(repment_str == c.to_string());
+        }
     }
 }
