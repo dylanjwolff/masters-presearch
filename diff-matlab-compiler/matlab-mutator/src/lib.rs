@@ -3,16 +3,22 @@ extern crate rand_xoshiro;
 use rand_xoshiro::rand_core::SeedableRng;
 extern crate log;
 extern crate regex;
-use regex::Match;
-
 use log::info;
 use rand::seq::IteratorRandom;
+use regex::Match;
+use std::fs;
 use std::iter::repeat;
+use std::path::Path;
 #[cfg(test)]
 extern crate quickcheck;
 #[cfg(test)]
 #[macro_use(quickcheck)]
 extern crate quickcheck_macros;
+
+pub fn flip_in_file<T: Rng>(in_f: &Path, rng: &mut T, num_to_flip: usize) -> String {
+    let sc = fs::read_to_string(in_f).unwrap();
+    flip_ops(sc, rng, num_to_flip)
+}
 
 pub fn flip_ops<T: Rng>(script_contents: String, rng: &mut T, num_to_flip: usize) -> String {
     let mats = find_candidate_indices(&script_contents);
@@ -39,7 +45,9 @@ pub fn find_candidate_indices(script_contents: &String) -> Vec<Match> {
     let re = create_re(&CANDIDATES);
     let re = regex::Regex::new(&re).unwrap();
 
-    re.find_iter(script_contents).collect()
+    let candidates: Vec<Match> = re.find_iter(script_contents).collect();
+    info!("Found {} candidates", candidates.len());
+    return candidates;
 }
 
 fn to_re_char(c: char) -> String {
