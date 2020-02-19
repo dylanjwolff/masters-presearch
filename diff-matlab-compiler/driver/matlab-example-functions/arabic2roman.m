@@ -1,19 +1,19 @@
 function string = arabic2roman( arabic_in )
-%  ARABIC2ROMAN Get Roman numerals from Arabic numeral.
-%   S = ARABIC2ROMAN( N ) produces the Roman numeral, S,
-%   for a given Arabic numeral, N.  N is a scalar number. S returns a
-%   string.
-%
-%   Limitation:
-%   Does not handle values greater than 3999
-%
-%   Example:
-%
-%      year = arabic2roman( 2007 )
-%      four = arabic2roman( 4 )
-%
 
-%   Copyright 2007 The MathWorks, Inc.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 roman_num  = { 'I' 'V' 'X' 'L' 'C' 'D' 'M' };
 string = '';
