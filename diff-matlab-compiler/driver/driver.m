@@ -43,7 +43,7 @@ function report(r1, r2, in_f, seed, num, input, o_fname)
         fprintf(fid, "{""seed"": %d, ""in_f"": ""%s"", ""num_flipped"": %d, ""fn_in"": %d}", seed, in_f, num, input);
         
         fid=fopen("bugs/" + o_fname + "_diff.txt",'w');
-        fprintf(fid, "%s \n\n\n\n\n %s", r1, r2);
+        fprintf(fid, "%s \n\n<<<<<<<<<<<<\n===============\n>>>>>>>>>>>>\n\n %s", r1, r2);
     end
 end
 
