@@ -3,7 +3,7 @@ global MCR;
 MCR = "/usr/local/MATLAB/MATLAB_Runtime/v97";
 global any2str;
 any2str = @(x) evalc('disp(x)');
-    
+CLEANUP_FILES = 0;
 MAX_MUT = 3;
 addpath(genpath("target"));
 
@@ -26,8 +26,10 @@ for file = files'
             end
         end
    
-        delete(o_f);
-        [status, result] = system("rm -rf " + out_mcc_dir);
+        if CLEANUP_FILES
+            delete(o_f);
+            [status, result] = system("rm -rf " + out_mcc_dir);
+        end
     end
 end
 
@@ -38,7 +40,7 @@ function report(r1, r2, in_f, seed, num, input, o_fname)
         same = 0
     end
     
-    if ~same && r2 ~= "[]"
+    if ~same && r2 ~= "[]" && r1 ~= ""
         fid=fopen("bugs/" + o_fname + ".json",'w');
         fprintf(fid, "{""seed"": %d, ""in_f"": ""%s"", ""num_flipped"": %d, ""fn_in"": %d}", seed, in_f, num, input);
         

@@ -343,7 +343,11 @@ for k = 1 : length(a)
 end
 
 
-
+g
+c
+d
+check_GCD
+k_divs
 
 
 

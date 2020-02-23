@@ -46,3 +46,5 @@ for index = len_arabic_str:-1:1
             string = sprintf('%s%s%s',roman_num{ j }, roman_num{ j+2 }, string);
     end
 end
+
+string
