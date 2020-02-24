@@ -4,7 +4,7 @@
 import Turtle
 import Data.Text
 import Data.IORef
-
+import System.Exit
 
 shelln cmd = shell cmd Turtle.empty
 
@@ -19,9 +19,7 @@ main = do
             interp_out = inshell (fromString ("matlab -batch '" ++ encodeString n ++ "(" ++ argument ++ ")'")) Turtle.empty in do
                 interp_out <- fmap strip $ strict interp_out
                 compiled_out <- fmap strip $ strict $ dropn 4 compiled_out
-                print compiled_out
-                print interp_out
-                return $ if (isInfixOf compiled_out interp_out) then ExitFailure 1 else ExitSuccess
+                if (isInfixOf compiled_out interp_out) then exitFailure else exitSuccess
 
 dropn :: Int -> Shell a -> Shell a
 dropn n s = Shell (\(FoldShell step begin done) -> do
