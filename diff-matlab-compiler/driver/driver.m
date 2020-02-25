@@ -53,7 +53,7 @@ function [r1, r2] = exec(input, f, out_mcc_dir, o_fname, compiled_res_file)
     any2str = @(x) evalc('disp(x)');
     MCR = "/usr/local/MATLAB/MATLAB_Runtime/v97";
     
-    r1 = f(input);
+    r1 = f(num2str(input));
     r1 = strtrim(any2str(r1));
     
     cmd_str = out_mcc_dir + "/run_" +o_fname + ".sh " + MCR + " " + input + " > " + compiled_res_file;

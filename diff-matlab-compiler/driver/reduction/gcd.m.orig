@@ -247,7 +247,7 @@ for k = 1 : length(a)            % length(a) decides the no of sets.
 
     
     c(k) = u(1) * sign(a(k)) ;
-    d(k) = u(2) + sign(b(k)) ;
+    d(k) = u(2) * sign(b(k)) ;
     g(k) = u(3) ;
     
 
