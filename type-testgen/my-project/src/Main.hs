@@ -26,7 +26,6 @@ data Token
       | TokenArrow
       | TokenBigArrow
       | TokenTimes
-      | TokenPlaceholder
       | TokenEquals
       | TokenWhere
       | TokenClassMeta
@@ -41,7 +40,7 @@ data Token
       | TokenODir
       | TokenCDir
       | TokenAny
-      | TokenFname String
+      | TokenName String
       | TokenComma
       | TokenHash
       deriving Show
@@ -68,8 +67,9 @@ lexer ('#':'-':'}':cs) = TokenCDir : lexer cs
 lexer ('#':cs) = TokenHash : lexer cs
 
 isComma c = c == ','
+isBracket c = c == '(' || c == ')' || c == '[' || c == ']'
 fand = liftM2 (&&)
-isValName = fand (not . isSpace) (not . isComma)
+isValName = fand (fand (not . isSpace) (not . isComma)) (not . isBracket)
 
 lexVar cs =
    case Prelude.span isValName cs of
@@ -77,8 +77,8 @@ lexVar cs =
       ("data",rest)  -> TokenDataMeta : lexer rest
       ("type",rest)  -> TokenTypeMeta : lexer rest
       ("where",rest)  -> TokenWhere   : lexer rest
-      (c:cs,rest)   ->   if isUpper c then (TokenType (c:cs)) : lexer rest else (TokenFname (c:cs)) : lexer rest
+      (c:cs,rest)   ->   if isUpper c then (TokenType (c:cs)) : lexer rest else (TokenName (c:cs)) : lexer rest
 
 lexBrackets ('(':cs) =
-    let (cts, rest) = Prelude.span isValName ('(':cs) in
-    if Prelude.last cts == ')' then TokenFname cts : lexer rest else TokenOB : lexer cs
+    let (cts, next:rest) = Prelude.span isValName cs in
+    if next == ')' then TokenName cts : lexer rest else TokenOB : lexer cs
