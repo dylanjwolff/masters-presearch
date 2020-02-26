@@ -1,0 +1,1 @@
+data Token = TokenColons | TokenArrow | TokenBigArrow | TokenTimes | TokenPlaceholder | TokenMetaType | TokenEquals | TokenWhere | TokenOr | TokenOSB | TokenCSB | TokenOB | TokenCB | TokenAny | TokenFname | TokenComma deriving Show
