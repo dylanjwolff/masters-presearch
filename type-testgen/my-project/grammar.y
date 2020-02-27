@@ -1,5 +1,7 @@
 {
 module Main where
+import Data.Char (isSpace, isAlpha, isUpper)
+import Control.Monad (liftM2)
 }
 
 %name parser
@@ -10,9 +12,10 @@ module Main where
       '::'            { TokenColons }
       '->'            { TokenArrow }
       '=>'            { TokenBigArrow }
-      type            { TokenTimes }
-      ph              { TokenPlaceholder }
-      meta            { TokenMetaType }
+      type            { TokenType $$ }
+      class_decl      { TokenClassMeta }
+      type_decl       { TokenTypeMeta }
+      data_decl       { TokenDataMeta }
       '='             { TokenEquals }
       where           { TokenWhere }
       '|'             { TokenOr }
@@ -21,22 +24,26 @@ module Main where
       '('             { TokenOB }
       ')'             { TokenCB }
       '*'             { TokenAny }
-      fname           { TokenFname }
+      name            { TokenName $$ }
       ","             { TokenComma }
 
+%left '->'
 %%
 
-TypeExp  : ph                      { PH $1 }
+TypeExp  : name                    { Name $1 }
          | type                    { Type $1 }
          | TypeExp '->' TypeExp    { Function $1 $3 }
          | '[' TypeExp ']'         { SBrack $2 }
          | '(' TypeExp ')'         { Brack $2 }
 
+{
+
+
 parseError :: [Token] -> a
 parseError _ = error "Parse error"
 
 data TypeExp
-    = PH String
+    = Name String
     | Type String
     | Function TypeExp TypeExp
     | SBrack TypeExp
@@ -48,42 +55,62 @@ data Token
       | TokenArrow
       | TokenBigArrow
       | TokenTimes
-      | TokenPlaceholder
-      | TokenMetaType
       | TokenEquals
       | TokenWhere
+      | TokenClassMeta
+      | TokenTypeMeta
+      | TokenType String
+      | TokenDataMeta
       | TokenOr
       | TokenOSB
       | TokenCSB
       | TokenOB
       | TokenCB
+      | TokenODir
+      | TokenCDir
       | TokenAny
-      | TokenFname
+      | TokenName String
       | TokenComma
- deriving Show
+      | TokenHash
+      deriving Show
+
 
 lexer :: String -> [Token]
 lexer [] = []
 lexer (c:cs)
       | isSpace c = lexer cs
       | isAlpha c = lexVar (c:cs)
-      | isDigit c = lexNum (c:cs)
+lexer ('=':'>':cs) = TokenBigArrow : lexer cs
 lexer ('=':cs) = TokenEquals : lexer cs
 lexer ('*':cs) = TokenAny : lexer cs
+lexer ('|':cs) = TokenOr : lexer cs
 lexer ('[':cs) = TokenOSB : lexer cs
 lexer (']':cs) = TokenCSB : lexer cs
-lexer ('(':cs) = TokenOB : lexer cs
+lexer ('(':cs) = lexBrackets ('(':cs)
 lexer (')':cs) = TokenCB : lexer cs
-lexer ('::':cs) = TokenColons : lexer cs
+lexer (':':':':cs) = TokenColons : lexer cs
 lexer (',':cs) = TokenComma : lexer cs
-lexer ('->':cs) = TokenArrow : lexer cs
-lexer ('=>':cs) = TokenBigArrow : lexer cs
+lexer ('-':'>':cs) = TokenArrow : lexer cs
+lexer ('{':'-':'#':cs) = TokenODir : lexer cs
+lexer ('#':'-':'}':cs) = TokenCDir : lexer cs
+lexer ('#':cs) = TokenHash : lexer cs
 
-lexNum cs = TokenInt (read num) : lexer rest
-      where (num,rest) = span isDigit cs
+isComma c = c == ','
+isBracket c = c == '(' || c == ')' || c == '[' || c == ']'
+fand = liftM2 (&&)
+isValName = fand (fand (not . isSpace) (not . isComma)) (not . isBracket)
 
 lexVar cs =
-   case span isAlpha cs of
-      ("let",rest) -> TokenLet : lexer rest
-      ("in",rest)  -> TokenIn : lexer rest
-      (var,rest)   -> TokenVar var : lexer rest
+   case Prelude.span isValName cs of
+      ("class",rest) -> TokenClassMeta : lexer rest
+      ("data",rest)  -> TokenDataMeta : lexer rest
+      ("type",rest)  -> TokenTypeMeta : lexer rest
+      ("where",rest)  -> TokenWhere   : lexer rest
+      (c:cs,rest)   ->   if isUpper c then (TokenType (c:cs)) : lexer rest else (TokenName (c:cs)) : lexer rest
+
+lexBrackets ('(':cs) =
+    let (cts, next:rest) = Prelude.span isValName cs in
+    if next == ')' then TokenName cts : lexer rest else TokenOB : lexer cs
+
+main = getContents >>= print . parser . lexer
+}
