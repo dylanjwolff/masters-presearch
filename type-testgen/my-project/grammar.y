@@ -32,11 +32,15 @@ import Control.Monad (liftM2)
 %left '::'
 %left '->'
 %left ','
+%left '|'
 %left APP
 %%
 
 Decl : FDecls                           { FDecl $1 }
      | CDecl                            { CDecl $1 }
+     | data_decl TypeExp '=' TypeExp    { DDecl $2 $4 }
+     | type_decl TypeExp '=' TypeExp    { TDecl $2 $4 }
+
 
 CDecl : class_decl TypeExp where FDecls               { UCDecl $2 $4 }
       | class_decl TypeExp '=>' TypeExp where FDecls  { QCDecl $2 $4 $6 }
@@ -51,6 +55,7 @@ FDecls : FDecl                          { [$1] }
 TypeExp  : name                    { Name $1 }
          | type                    { Type $1 }
          | '*'                     { Any }
+         | TypeExp '|' TypeExp     { Or $1 $3 }
          | TypeExp ',' TypeExp     { Sep $1 $3 }
          | TypeExp '->' TypeExp    { Function $1 $3 }
          | '[' TypeExp ']'         { SBrack $2 }
@@ -73,6 +78,8 @@ data CDecl
 data Decl
     = FDecl FDecls
     | CDecl CDecl
+    | DDecl TypeExp TypeExp
+    | TDecl TypeExp TypeExp
     deriving Show
 
 data FDecl
@@ -86,6 +93,7 @@ data TypeExp
     | Type String
     | Function TypeExp TypeExp
     | Sep TypeExp TypeExp
+    | Or TypeExp TypeExp
     | SBrack TypeExp
     | Brack TypeExp
     | App TypeExp TypeExp
@@ -155,6 +163,7 @@ lexVar cs =
       ("class",rest) -> TokenClassMeta : lexer rest
       ("data",rest)  -> TokenDataMeta : lexer rest
       ("type",rest)  -> TokenTypeMeta : lexer rest
+      ("newtype",rest)  -> TokenTypeMeta : lexer rest
       ("where",rest)  -> TokenWhere   : lexer rest
       (c:cs,rest)   ->   if isUpper c then (TokenType (c:cs)) : (lexer rest) else lookaheadAndLex TokenName (c:cs) rest
 
