@@ -35,10 +35,18 @@ import Control.Monad (liftM2)
 %left APP
 %%
 
+Decl : FDecls                           { FDecl $1 }
+     | CDecl                            { CDecl $1 }
+
+CDecl : class_decl TypeExp where FDecls               { UCDecl $2 $4 }
+      | class_decl TypeExp '=>' TypeExp where FDecls  { QCDecl $2 $4 $6 }
 
 FDecl : fname '::' TypeExp              { UFDecl $1 $3 }
      | fname '::' TypeExp '=>' TypeExp  { QFDecl $1 $3 $5 }
      | '(' FDecl ')'                    { FDBrack $2 }
+
+FDecls : FDecl                          { [$1] }
+       | FDecls FDecl                   { $2:$1 }
 
 TypeExp  : name                    { Name $1 }
          | type                    { Type $1 }
@@ -48,13 +56,24 @@ TypeExp  : name                    { Name $1 }
          | '[' TypeExp ']'         { SBrack $2 }
          | '(' TypeExp ')'         { Brack $2 }
          | TypeExp TypeExp   %prec APP     { App $1 $2 }
-
-
 {
 
 
 parseError :: [Token] -> a
 parseError _ = error "Parse error"
+
+
+type FDecls = [FDecl]
+
+data CDecl
+    = UCDecl TypeExp FDecls
+    | QCDecl TypeExp TypeExp FDecls
+    deriving Show
+
+data Decl
+    = FDecl FDecls
+    | CDecl CDecl
+    deriving Show
 
 data FDecl
     = UFDecl String TypeExp
