@@ -25,20 +25,30 @@ import Control.Monad (liftM2)
       ')'             { TokenCB }
       '*'             { TokenAny }
       name            { TokenName $$ }
+      fname           { TokenFName $$ }
       ','             { TokenComma }
 
 %right in
+%left '::'
 %left '->'
+%left ','
 %left APP
 %%
 
 
+FDecl : fname '::' TypeExp              { UFDecl $1 $3 }
+     | fname '::' TypeExp '=>' TypeExp  { QFDecl $1 $3 $5 }
+     | '(' FDecl ')'                    { FDBrack $2 }
+
 TypeExp  : name                    { Name $1 }
          | type                    { Type $1 }
+         | '*'                     { Any }
+         | TypeExp ',' TypeExp     { Sep $1 $3 }
          | TypeExp '->' TypeExp    { Function $1 $3 }
          | '[' TypeExp ']'         { SBrack $2 }
          | '(' TypeExp ')'         { Brack $2 }
          | TypeExp TypeExp   %prec APP     { App $1 $2 }
+
 
 {
 
@@ -46,14 +56,21 @@ TypeExp  : name                    { Name $1 }
 parseError :: [Token] -> a
 parseError _ = error "Parse error"
 
+data FDecl
+    = UFDecl String TypeExp
+    | QFDecl String TypeExp TypeExp
+    | FDBrack FDecl
+    deriving Show
 
 data TypeExp
     = Name String
     | Type String
     | Function TypeExp TypeExp
+    | Sep TypeExp TypeExp
     | SBrack TypeExp
     | Brack TypeExp
     | App TypeExp TypeExp
+    | Any
     deriving Show
 
 data Token
