@@ -25,16 +25,20 @@ import Control.Monad (liftM2)
       ')'             { TokenCB }
       '*'             { TokenAny }
       name            { TokenName $$ }
-      ","             { TokenComma }
+      ','             { TokenComma }
 
+%right in
 %left '->'
+%left APP
 %%
+
 
 TypeExp  : name                    { Name $1 }
          | type                    { Type $1 }
          | TypeExp '->' TypeExp    { Function $1 $3 }
          | '[' TypeExp ']'         { SBrack $2 }
          | '(' TypeExp ')'         { Brack $2 }
+         | TypeExp TypeExp   %prec APP     { App $1 $2 }
 
 {
 
@@ -42,12 +46,14 @@ TypeExp  : name                    { Name $1 }
 parseError :: [Token] -> a
 parseError _ = error "Parse error"
 
+
 data TypeExp
     = Name String
     | Type String
     | Function TypeExp TypeExp
     | SBrack TypeExp
     | Brack TypeExp
+    | App TypeExp TypeExp
     deriving Show
 
 data Token
@@ -70,6 +76,7 @@ data Token
       | TokenCDir
       | TokenAny
       | TokenName String
+      | TokenFName String
       | TokenComma
       | TokenHash
       deriving Show
@@ -100,17 +107,24 @@ isBracket c = c == '(' || c == ')' || c == '[' || c == ']'
 fand = liftM2 (&&)
 isValName = fand (fand (not . isSpace) (not . isComma)) (not . isBracket)
 
+lookaheadAndLex proposed current rest =
+    case rest of
+        a:b:c:cs -> case a:b:[c] of
+                    " ::" -> TokenFName current : TokenColons : lexer cs
+                    otherwise -> (proposed current) : lexer rest
+        otherwise -> (proposed current) : lexer rest
+
 lexVar cs =
    case Prelude.span isValName cs of
       ("class",rest) -> TokenClassMeta : lexer rest
       ("data",rest)  -> TokenDataMeta : lexer rest
       ("type",rest)  -> TokenTypeMeta : lexer rest
       ("where",rest)  -> TokenWhere   : lexer rest
-      (c:cs,rest)   ->   if isUpper c then (TokenType (c:cs)) : lexer rest else (TokenName (c:cs)) : lexer rest
+      (c:cs,rest)   ->   if isUpper c then (TokenType (c:cs)) : (lexer rest) else lookaheadAndLex TokenName (c:cs) rest
 
 lexBrackets ('(':cs) =
     let (cts, next:rest) = Prelude.span isValName cs in
-    if next == ')' then TokenName cts : lexer rest else TokenOB : lexer cs
+    if next == ')' then lookaheadAndLex TokenName cts rest else TokenOB : (lexer cs)
 
 main = getContents >>= print . parser . lexer
 }

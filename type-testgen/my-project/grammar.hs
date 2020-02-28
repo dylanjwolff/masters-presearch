@@ -15,13 +15,13 @@ data HappyAbsSyn t4
 	| HappyAbsSyn4 t4
 
 happyExpList :: Happy_Data_Array.Array Int Int
-happyExpList = Happy_Data_Array.listArray (0,28) ([16512,9,512,0,128,0,0,20512,2050,32916,2048,32800,8192,592,0,0,0,0,0
+happyExpList = Happy_Data_Array.listArray (0,41) ([16512,9,512,0,640,37,0,20512,2050,32916,11522,49312,9,0,37896,0,0,0,0,0,0
 	])
 
 {-# NOINLINE happyExpListPerState #-}
 happyExpListPerState st =
     token_strs_expected
-  where token_strs = ["error","%dummy","%start_parser","TypeExp","'::'","'->'","'=>'","type","class_decl","type_decl","data_decl","'='","where","'|'","'['","']'","'('","')'","'*'","name","\",\"","%eof"]
+  where token_strs = ["error","%dummy","%start_parser","TypeExp","'::'","'->'","'=>'","type","class_decl","type_decl","data_decl","'='","where","'|'","'['","']'","'('","')'","'*'","name","','","%eof"]
         bit_start = st * 22
         bit_end = (st + 1) * 22
         read_bit = readArrayBit happyExpList
@@ -43,8 +43,13 @@ action_1 _ = happyFail (happyExpListPerState 1)
 
 action_2 _ = happyReduce_1
 
-action_3 (6) = happyShift action_9
+action_3 (6) = happyShift action_10
+action_3 (8) = happyShift action_4
+action_3 (15) = happyShift action_5
+action_3 (17) = happyShift action_6
+action_3 (20) = happyShift action_2
 action_3 (22) = happyAccept
+action_3 (4) = happyGoto action_9
 action_3 _ = happyFail (happyExpListPerState 3)
 
 action_4 _ = happyReduce_2
@@ -63,26 +68,48 @@ action_6 (20) = happyShift action_2
 action_6 (4) = happyGoto action_7
 action_6 _ = happyFail (happyExpListPerState 6)
 
-action_7 (6) = happyShift action_9
-action_7 (18) = happyShift action_12
+action_7 (6) = happyShift action_10
+action_7 (8) = happyShift action_4
+action_7 (15) = happyShift action_5
+action_7 (17) = happyShift action_6
+action_7 (18) = happyShift action_13
+action_7 (20) = happyShift action_2
+action_7 (4) = happyGoto action_9
 action_7 _ = happyFail (happyExpListPerState 7)
 
-action_8 (6) = happyShift action_9
-action_8 (16) = happyShift action_11
+action_8 (6) = happyShift action_10
+action_8 (8) = happyShift action_4
+action_8 (15) = happyShift action_5
+action_8 (16) = happyShift action_12
+action_8 (17) = happyShift action_6
+action_8 (20) = happyShift action_2
+action_8 (4) = happyGoto action_9
 action_8 _ = happyFail (happyExpListPerState 8)
 
 action_9 (8) = happyShift action_4
 action_9 (15) = happyShift action_5
 action_9 (17) = happyShift action_6
 action_9 (20) = happyShift action_2
-action_9 (4) = happyGoto action_10
-action_9 _ = happyFail (happyExpListPerState 9)
+action_9 (4) = happyGoto action_9
+action_9 _ = happyReduce_6
 
-action_10 _ = happyReduce_3
+action_10 (8) = happyShift action_4
+action_10 (15) = happyShift action_5
+action_10 (17) = happyShift action_6
+action_10 (20) = happyShift action_2
+action_10 (4) = happyGoto action_11
+action_10 _ = happyFail (happyExpListPerState 10)
 
-action_11 _ = happyReduce_4
+action_11 (8) = happyShift action_4
+action_11 (15) = happyShift action_5
+action_11 (17) = happyShift action_6
+action_11 (20) = happyShift action_2
+action_11 (4) = happyGoto action_9
+action_11 _ = happyReduce_3
 
-action_12 _ = happyReduce_5
+action_12 _ = happyReduce_4
+
+action_13 _ = happyReduce_5
 
 happyReduce_1 = happySpecReduce_1  4 happyReduction_1
 happyReduction_1 (HappyTerminal (TokenName happy_var_1))
@@ -124,6 +151,14 @@ happyReduction_5 _
 		 (Brack happy_var_2
 	)
 happyReduction_5 _ _ _  = notHappyAtAll 
+
+happyReduce_6 = happySpecReduce_2  4 happyReduction_6
+happyReduction_6 (HappyAbsSyn4  happy_var_2)
+	(HappyAbsSyn4  happy_var_1)
+	 =  HappyAbsSyn4
+		 (App happy_var_1 happy_var_2
+	)
+happyReduction_6 _ _  = notHappyAtAll 
 
 happyNewToken action sts stk [] =
 	action 22 22 notHappyAtAll (HappyState action) sts stk []
@@ -186,12 +221,14 @@ happySeq = happyDontSeq
 parseError :: [Token] -> a
 parseError _ = error "Parse error"
 
+
 data TypeExp
     = Name String
     | Type String
     | Function TypeExp TypeExp
     | SBrack TypeExp
     | Brack TypeExp
+    | App TypeExp TypeExp
     deriving Show
 
 data Token
@@ -214,6 +251,7 @@ data Token
       | TokenCDir
       | TokenAny
       | TokenName String
+      | TokenFName String
       | TokenComma
       | TokenHash
       deriving Show
@@ -244,17 +282,24 @@ isBracket c = c == '(' || c == ')' || c == '[' || c == ']'
 fand = liftM2 (&&)
 isValName = fand (fand (not . isSpace) (not . isComma)) (not . isBracket)
 
+lookaheadAndLex proposed current rest =
+    case rest of
+        a:b:c:cs -> case a:b:[c] of
+                    " ::" -> TokenFName current : TokenColons : lexer cs
+                    otherwise -> (proposed current) : lexer rest
+        otherwise -> (proposed current) : lexer rest
+
 lexVar cs =
    case Prelude.span isValName cs of
       ("class",rest) -> TokenClassMeta : lexer rest
       ("data",rest)  -> TokenDataMeta : lexer rest
       ("type",rest)  -> TokenTypeMeta : lexer rest
       ("where",rest)  -> TokenWhere   : lexer rest
-      (c:cs,rest)   ->   if isUpper c then (TokenType (c:cs)) : lexer rest else (TokenName (c:cs)) : lexer rest
+      (c:cs,rest)   ->   if isUpper c then (TokenType (c:cs)) : (lexer rest) else lookaheadAndLex TokenName (c:cs) rest
 
 lexBrackets ('(':cs) =
     let (cts, next:rest) = Prelude.span isValName cs in
-    if next == ')' then TokenName cts : lexer rest else TokenOB : lexer cs
+    if next == ')' then lookaheadAndLex TokenName cts rest else TokenOB : (lexer cs)
 
 main = getContents >>= print . parser . lexer
 {-# LINE 1 "templates/GenericTemplate.hs" #-}
