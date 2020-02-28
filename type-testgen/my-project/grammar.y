@@ -2,6 +2,8 @@
 module Main where
 import Data.Char (isSpace, isAlpha, isUpper)
 import Control.Monad (liftM2)
+import Data.Text (unpack)
+import Turtle (strict, input)
 }
 
 %name parser
@@ -27,6 +29,8 @@ import Control.Monad (liftM2)
       name            { TokenName $$ }
       fname           { TokenFName $$ }
       ','             { TokenComma }
+      '{-#'           { TokenODir }
+      '#-}'           { TokenCDir }
 
 %right in
 %left '::'
@@ -36,10 +40,14 @@ import Control.Monad (liftM2)
 %left APP
 %%
 
+Decls : Decl         { [$1] }
+      | Decls Decl   { $2:$1 }
+
 Decl : FDecls                           { FDecl $1 }
      | CDecl                            { CDecl $1 }
      | data_decl TypeExp '=' TypeExp    { DDecl $2 $4 }
      | type_decl TypeExp '=' TypeExp    { TDecl $2 $4 }
+     | '{-#' TypeExp '#-}'              { Directive $2 }
 
 
 CDecl : class_decl TypeExp where FDecls               { UCDecl $2 $4 }
@@ -49,8 +57,8 @@ FDecl : fname '::' TypeExp              { UFDecl $1 $3 }
      | fname '::' TypeExp '=>' TypeExp  { QFDecl $1 $3 $5 }
      | '(' FDecl ')'                    { FDBrack $2 }
 
-FDecls : FDecl                          { [$1] }
-       | FDecls FDecl                   { $2:$1 }
+FDecls : FDecl            { [$1] }
+       | FDecls FDecl     { $2:$1 }
 
 TypeExp  : name                    { Name $1 }
          | type                    { Type $1 }
@@ -68,6 +76,7 @@ parseError :: [Token] -> a
 parseError _ = error "Parse error"
 
 
+type Decls = [Decl]
 type FDecls = [FDecl]
 
 data CDecl
@@ -80,6 +89,7 @@ data Decl
     | CDecl CDecl
     | DDecl TypeExp TypeExp
     | TDecl TypeExp TypeExp
+    | Directive TypeExp
     deriving Show
 
 data FDecl
@@ -144,7 +154,7 @@ lexer (',':cs) = TokenComma : lexer cs
 lexer ('-':'>':cs) = TokenArrow : lexer cs
 lexer ('{':'-':'#':cs) = TokenODir : lexer cs
 lexer ('#':'-':'}':cs) = TokenCDir : lexer cs
-lexer ('#':cs) = TokenHash : lexer cs
+lexer ('#':cs) = lexer cs
 
 isComma c = c == ','
 isBracket c = c == '(' || c == ')' || c == '[' || c == ']'

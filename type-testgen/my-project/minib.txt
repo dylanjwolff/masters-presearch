@@ -1,0 +1,16 @@
+(!!) :: [a] -> Int -> a
+($) :: (a -> b) -> a -> b
+($!) :: (a -> b) -> a -> b
+(&&) :: Bool -> Bool -> Bool
+(++) :: [a] -> [a] -> [a]
+(.) :: (b -> c) -> (a -> b) -> a -> c
+(<$>) :: Functor f => (a -> b) -> f a -> f b
+(=<<) :: Monad m => (a -> m b) -> m a -> m b
+class Functor f => Applicative (f :: * -> *) where
+  pure :: a -> f a
+  (<*>) :: f (a -> b) -> f a -> f b
+  GHC.Base.liftA2 :: (a -> b -> c) -> f a -> f b -> f c
+  (*>) :: f a -> f b -> f b
+  (<*) :: f a -> f b -> f a
+  {-# MINIMAL pure, ((<*>) | liftA2) #-}
+
