@@ -33,17 +33,19 @@ import Turtle (strict, input)
       '#-}'           { TokenCDir }
 
 %right in
-%left '::'
+%left TODECL
+%left FDECLS
 %left '->'
 %left ','
 %left '|'
 %left APP
+%left '::'
 %%
 
 Decls : Decl         { [$1] }
       | Decls Decl   { $2:$1 }
 
-Decl : FDecls                           { FDecl $1 }
+Decl : FDecls          %prec TODECL     { FDecl $1 }
      | CDecl                            { CDecl $1 }
      | data_decl TypeExp '=' TypeExp    { DDecl $2 $4 }
      | type_decl TypeExp '=' TypeExp    { TDecl $2 $4 }
@@ -55,10 +57,12 @@ CDecl : class_decl TypeExp where FDecls               { UCDecl $2 $4 }
 
 FDecl : fname '::' TypeExp              { UFDecl $1 $3 }
      | fname '::' TypeExp '=>' TypeExp  { QFDecl $1 $3 $5 }
+     | type '::' TypeExp '=>' TypeExp   { TQFDecl $1 $3 $5 }
+     | type '::' TypeExp                { TUFDecl $1 $3 }
      | '(' FDecl ')'                    { FDBrack $2 }
 
-FDecls : FDecl            { [$1] }
-       | FDecls FDecl     { $2:$1 }
+FDecls : FDecl                        { [$1] }
+       | FDecls FDecl  %prec FDECLS   { $2:$1 }
 
 TypeExp  : name                    { Name $1 }
          | type                    { Type $1 }
@@ -94,7 +98,9 @@ data Decl
 
 data FDecl
     = UFDecl String TypeExp
+    | TUFDecl String TypeExp
     | QFDecl String TypeExp TypeExp
+    | TQFDecl String TypeExp TypeExp
     | FDBrack FDecl
     deriving Show
 
