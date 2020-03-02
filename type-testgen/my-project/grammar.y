@@ -4,6 +4,7 @@ import Data.Char (isSpace, isAlpha, isUpper)
 import Control.Monad (liftM2)
 import Data.Text (unpack)
 import Turtle (strict, input)
+import Data.List (isPrefixOf)
 }
 
 %name parser
@@ -54,6 +55,9 @@ Decl : FDecls          %prec TODECL     { FDecl $1 }
 
 CDecl : class_decl TypeExp where FDecls               { UCDecl $2 $4 }
       | class_decl TypeExp '=>' TypeExp where FDecls  { QCDecl $2 $4 $6 }
+      | class_decl TypeExp '=>' TypeExp FDecls where FDecls  { Q2CDecl $2 $4 $5 $7 }
+      | class_decl TypeExp FDecls '=>' TypeExp FDecls where FDecls  { Q3CDecl $2 $3 $5 $6 $8 }
+      | class_decl TypeExp FDecls where FDecls               { U2CDecl $2 $3 $5 }
 
 FDecl : fname '::' TypeExp              { UFDecl $1 $3 }
      | fname '::' TypeExp '=>' TypeExp  { QFDecl $1 $3 $5 }
@@ -85,7 +89,10 @@ type FDecls = [FDecl]
 
 data CDecl
     = UCDecl TypeExp FDecls
+    | U2CDecl TypeExp FDecls FDecls
     | QCDecl TypeExp TypeExp FDecls
+    | Q2CDecl TypeExp TypeExp FDecls FDecls
+    | Q3CDecl TypeExp FDecls TypeExp FDecls FDecls
     deriving Show
 
 data Decl
@@ -113,6 +120,7 @@ data TypeExp
     | SBrack TypeExp
     | Brack TypeExp
     | App TypeExp TypeExp
+    | TEDir TypeExp TypeExp
     | Any
     deriving Show
 
@@ -158,14 +166,25 @@ lexer (')':cs) = TokenCB : lexer cs
 lexer (':':':':cs) = TokenColons : lexer cs
 lexer (',':cs) = TokenComma : lexer cs
 lexer ('-':'>':cs) = TokenArrow : lexer cs
-lexer ('{':'-':'#':cs) = TokenODir : lexer cs
-lexer ('#':'-':'}':cs) = TokenCDir : lexer cs
+lexer ('{':'-':'#':cs) = ignoreDirective cs
 lexer ('#':cs) = lexer cs
 
 isComma c = c == ','
 isBracket c = c == '(' || c == ')' || c == '[' || c == ']'
 fand = liftM2 (&&)
 isValName = fand (fand (not . isSpace) (not . isComma)) (not . isBracket)
+
+ignoreDirective cs =
+    let (pre, post) = split "#-}" cs in
+    lexer post
+
+split splitter tosplit =
+    if isPrefixOf splitter tosplit then
+        ("", drop (length splitter) tosplit)
+    else
+       let c:cs = tosplit in
+       let (pre, post) = split splitter cs in
+       (c:pre, post)
 
 lookaheadAndLex proposed current rest =
     case rest of
