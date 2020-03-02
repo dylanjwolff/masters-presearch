@@ -1,5 +1,5 @@
 {
-module Main where
+module Parser where
 import Data.Char (isSpace, isAlpha, isUpper)
 import Control.Monad (liftM2)
 import Data.Text (unpack)
@@ -46,7 +46,7 @@ import Data.List (isPrefixOf)
 Decls : Decl         { [$1] }
       | Decls Decl   { $2:$1 }
 
-Decl : FDecls          %prec TODECL     { FDecl $1 }
+Decl : FDecls          %prec TODECL     { FDecls $1 }
      | CDecl                            { CDecl $1 }
      | data_decl TypeExp '=' TypeExp    { DDecl $2 $4 }
      | type_decl TypeExp '=' TypeExp    { TDecl $2 $4 }
@@ -96,7 +96,7 @@ data CDecl
     deriving Show
 
 data Decl
-    = FDecl FDecls
+    = FDecls FDecls
     | CDecl CDecl
     | DDecl TypeExp TypeExp
     | TDecl TypeExp TypeExp
@@ -206,5 +206,4 @@ lexBrackets ('(':cs) =
     let (cts, next:rest) = Prelude.span isValName cs in
     if next == ')' then lookaheadAndLex TokenName cts rest else TokenOB : (lexer cs)
 
-main = getContents >>= print . parser . lexer
 }
