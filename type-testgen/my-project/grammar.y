@@ -181,7 +181,7 @@ lexVar cs =
       ("type",rest)  -> TokenTypeMeta : lexer rest
       ("newtype",rest)  -> TokenTypeMeta : lexer rest
       ("where",rest)  -> TokenWhere   : lexer rest
-      (c:cs,rest)   ->   if isUpper c then (TokenType (c:cs)) : (lexer rest) else lookaheadAndLex TokenName (c:cs) rest
+      (c:cs,rest)   ->   if isUpper c then lookaheadAndLex TokenType (c:cs) rest else lookaheadAndLex TokenName (c:cs) rest
 
 lexBrackets ('(':cs) =
     let (cts, next:rest) = Prelude.span isValName cs in

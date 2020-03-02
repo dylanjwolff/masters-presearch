@@ -1,22 +1,10 @@
-type FilePath = String
-data Float
-  = ghc-prim-0.5.3:GHC.Types.F# ghc-prim-0.5.3:GHC.Prim.Float#
-class Fractional a => Floating a where
-  pi :: a
-  exp :: a -> a
-  log :: a -> a
-  sqrt :: a -> a
-  logBase :: a -> a -> a
-  sin :: a -> a
-  cos :: a -> a
-  tan :: a -> a
-  asin :: a -> a
-  acos :: a -> a
-  atan :: a -> a
-  sinh :: a -> a
-  cosh :: a -> a
-  tanh :: a -> a
-  asinh :: a -> a
-  acosh :: a -> a
-  atanh :: a -> a
-  GHC.Float.log1p :: a -> a
+(!!) :: [a] -> Int -> a
+($) :: (a -> b) -> a -> b
+($!) :: (a -> b) -> a -> b
+(&&) :: Bool -> Bool -> Bool
+(++) :: [a] -> [a] -> [a]
+(.) :: (b -> c) -> (a -> b) -> a -> c
+(<$>) :: Functor f => (a -> b) -> f a -> f b
+(=<<) :: Monad m => (a -> m b) -> m a -> m b
+class Functor f => Applicative (f :: * -> *) where
+  pure :: a -> f a
