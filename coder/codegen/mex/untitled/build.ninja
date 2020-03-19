@@ -1,0 +1,48 @@
+# CompilerName=gcc
+# Mode=optim
+ninja_required_version = 1.3
+
+# Basic folders
+root = .
+builddir = $root/build/glnxa64
+matlabdir = /usr/local/MATLAB/R2019b
+startdir = /home/dylan/git/masters-presearch/coder
+
+# Toolchain information
+cc = /usr/bin/gcc
+cxx = g++
+linker = /usr/bin/gcc
+linkerxx = g++
+
+cflags =  -fexceptions -fPIC -fno-omit-frame-pointer -pthread -D_GNU_SOURCE -DMATLAB_MEX_FILE  -O2 -fwrapv -DNDEBUG -std=c99 -I "$root" -I "$startdir" -I "$root/interface" -I "$matlabdir/extern/include" -I "$matlabdir/simulink/include" -I "$matlabdir/rtw/c/src" -I "$matlabdir/rtw/c/src/ext_mode/common" -I "$matlabdir/rtw/c/ert" -I "." -DMODEL=untitled_mex -DHAVESTDIO -DUSE_RTMODEL -DUNIX -c 
+
+cxxflags =  -fexceptions -fPIC -fno-omit-frame-pointer -pthread -std=c++11 -D_GNU_SOURCE -DMATLAB_MEX_FILE  -O2 -fwrapv -DNDEBUG -std=c++11 -I "$root" -I "$startdir" -I "$root/interface" -I "$matlabdir/extern/include" -I "$matlabdir/simulink/include" -I "$matlabdir/rtw/c/src" -I "$matlabdir/rtw/c/src/ext_mode/common" -I "$matlabdir/rtw/c/ert" -I "." -DMODEL=untitled_mex -DHAVESTDIO -DUSE_RTMODEL -DUNIX -c 
+
+ldflags =  -pthread -Wl,--no-undefined -Wl,-rpath-link,$matlabdir/bin/glnxa64 -shared  -L"$matlabdir/bin/glnxa64" -lmx -lmex -lmat -lm -lstdc++  -o untitled_mex.mexa64 -lemlrt -lcovrt -lut -lmwmathutil  -Wl,--version-script,untitled_mex.map
+
+# Build Rules
+rule cc
+    command = $cc $cflags $in -o $out
+
+rule cxx
+    command = $cxx $cxxflags $in -o $out
+
+rule link
+    command = $linker $in $ldflags
+
+rule linkxx
+    command = $linkerxx $in $ldflags
+
+# Build
+build $builddir/rt_nonfinite.o : cc $root/rt_nonfinite.c
+build $builddir/untitled_data.o : cc $root/untitled_data.c
+build $builddir/untitled_initialize.o : cc $root/untitled_initialize.c
+build $builddir/untitled_terminate.o : cc $root/untitled_terminate.c
+build $builddir/untitled.o : cc $root/untitled.c
+build $builddir/_coder_untitled_api.o : cc $root/interface/_coder_untitled_api.c
+build $builddir/_coder_untitled_mex.o : cc $root/interface/_coder_untitled_mex.c
+build $builddir/_coder_untitled_info.o : cc $root/interface/_coder_untitled_info.c
+build $builddir/c_mexapi_version.o : cc $matlabdir/extern/version/c_mexapi_version.c
+
+# Link
+build $root/untitled_mex.mexa64 : link $builddir/rt_nonfinite.o $builddir/untitled_data.o $builddir/untitled_initialize.o $builddir/untitled_terminate.o $builddir/untitled.o $builddir/_coder_untitled_api.o $builddir/_coder_untitled_mex.o $builddir/_coder_untitled_info.o $builddir/c_mexapi_version.o 
