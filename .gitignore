@@ -3,3 +3,4 @@ target/
 .stack-work
 grammar.hs
 grammar.info
+venv
