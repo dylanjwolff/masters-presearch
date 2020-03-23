@@ -9,10 +9,14 @@ pub mod smtlibv2lexer;
 pub mod smtlibv2listener;
 pub mod smtlibv2parser;
 
+use crate::smtlibv2parser::CommandContext;
 use crate::smtlibv2parser::IdentifierContext;
+use crate::smtlibv2parser::NumeralContextAttrs;
 use crate::smtlibv2parser::Qual_identiferContext;
 use crate::smtlibv2parser::SimpleSymbolContext;
+use crate::smtlibv2parser::Spec_constantContextAttrs;
 use crate::smtlibv2parser::TermContext;
+use crate::smtlibv2parser::TermContextAttrs;
 use antlr_rust::common_token_stream::CommonTokenStream;
 use antlr_rust::input_stream::InputStream;
 use antlr_rust::parser_rule_context::{BaseParserRuleContext, ParserRuleContext};
@@ -25,6 +29,8 @@ use smtlibv2lexer::SMTLIBv2Lexer;
 use smtlibv2listener::SMTLIBv2Listener;
 use smtlibv2parser::SMTLIBv2Parser;
 use smtlibv2parser::SimpleSymbolContextAttrs;
+use std::borrow::BorrowMut;
+use std::collections::BTreeMap;
 use std::rc::Rc;
 
 const SMT_EX: &'static str = "(set-logic QF_LIA)
@@ -35,13 +41,48 @@ const SMT_EX: &'static str = "(set-logic QF_LIA)
 ; unsat
 (exit)";
 
+const IN_EX: &'static str = "(declare-const x Int)";
+const R_EX: &'static str = "x";
+
 pub fn exec() {
     let mut _lexer = SMTLIBv2Lexer::new(Box::new(InputStream::new(SMT_EX.into())));
     let token_source = CommonTokenStream::new(_lexer);
     let mut parser = SMTLIBv2Parser::new(Box::new(token_source));
-    parser.add_parse_listener(Box::new(Listener));
+    let listener = Box::new(Listener {
+        vng: VarNameGenerator {
+            basename: "GEN".to_string(),
+            counter: 0,
+        },
+        new_vars: BTreeMap::new(),
+    });
+    let lid = parser.add_parse_listener(listener);
     let result = parser.script();
-    print!("{}", result.unwrap().get_text());
+
+    let listener = parser.remove_parse_listener(lid);
+    println!("dict {:?}", listener.new_vars);
+
+    let mut decls = listener
+        .new_vars
+        .iter()
+        .map(|(k, v)| format!("(declare-const {} {})", k, v.typestr()))
+        .map(|ds| cmd_from(ds))
+        .collect::<Vec<Rc<dyn ParserRuleContext + 'static>>>();
+
+    let script = result.unwrap();
+
+    // this clone might be expensive, not sure if it is recursive
+    let mut kids = script.get_children_full().borrow().clone();
+
+    decls.append(&mut kids);
+    script.get_children_full().replace(decls);
+    println!("{}", script.get_text());
+}
+
+fn cmd_from(cmd: String) -> Rc<dyn ParserRuleContext + 'static> {
+    let mut _lexer = SMTLIBv2Lexer::new(Box::new(InputStream::new(cmd)));
+    let token_source = CommonTokenStream::new(_lexer);
+    let mut parser = SMTLIBv2Parser::new(Box::new(token_source));
+    parser.command().unwrap()
 }
 
 fn tmnl_ctxt_from(token: &str) -> TerminalNode {
@@ -63,18 +104,64 @@ fn tmnl_ctxt_from(token: &str) -> TerminalNode {
     // also if parent can be None
     BaseParserRuleContext::new_parser_ctx(None, -1, tmnl_ctxt)
 }
-//need to write mutable visitor to result
-struct Listener;
+
+#[derive(Debug, Clone)]
+enum SMTlibConst {
+    Num(i64),
+    Dec(f64),
+    Str(String),
+    Bin(), // Will add support later
+    Hex(), // ditto
+}
+
+impl SMTlibConst {
+    fn typestr(&self) -> &str {
+        match self {
+            SMTlibConst::Num(_) => "Int",
+            _ => panic!("Unimplemented for non-ints"),
+        }
+    }
+}
+
+struct VarNameGenerator {
+    basename: String,
+    counter: u32,
+}
+
+impl VarNameGenerator {
+    fn get_name(&mut self) -> String {
+        self.counter = self.counter + 1;
+        format!("{}{}", self.basename, self.counter)
+    }
+}
+
+struct Listener {
+    vng: VarNameGenerator,
+    new_vars: BTreeMap<String, SMTlibConst>,
+}
+
+fn qual_id_from(var: String) -> Rc<Qual_identiferContext> {
+    let mut _lexer = SMTLIBv2Lexer::new(Box::new(InputStream::new(var)));
+    let token_source = CommonTokenStream::new(_lexer);
+    let mut parser = SMTLIBv2Parser::new(Box::new(token_source));
+    parser.qual_identifer().unwrap()
+}
 
 impl SMTLIBv2Listener for Listener {
+    // should add some assertions that these are single parent nodes
     fn exit_term(&mut self, term: &TermContext) {
+        match term.spec_constant() {
+            Some(sc) => {
+                let name = self.vng.get_name();
+                sc.numeral()
+                    .and_then(|n| n.get_text().parse::<i64>().ok())
+                    .map(|n| self.new_vars.insert(name.clone(), SMTlibConst::Num(n)));
+                term.get_children_full().replace(vec![qual_id_from(name)]);
+                ()
+            }
+            None => (),
+        };
         // term.get_children_full().replace(vec![]);
-    }
-
-    fn exit_simpleSymbol(&mut self, ssc: &SimpleSymbolContext) {
-        let kids = ssc
-            .get_children_full()
-            .replace(vec![Rc::new(tmnl_ctxt_from("z"))]);
     }
 }
 
