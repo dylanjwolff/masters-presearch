@@ -1,0 +1,24 @@
+Hi all,
+
+Quick update for the week before we chat tomorrow:
+
+I spent most of my time figuring out the parsing for SMTlib formulas.  Unfortunately, as I mentioned via Slack, I burned a bit more time than I probably should have in dependency hell with the Haskell parser listed on the SMTlib site before giving up. After that, I moved on to using the ANTLR4 grammar. I've been able to get this working and have a simple example of replacing constants with fresh variables. There was a fair amount more complexity than I would have thought with the grammar itself and the code generated, so I didn't quite have time to look at throwing this into a larger program that can drive differential testing before tonight.
+
+Dominik also responded to me today, and indicated that he had similar issues with the parsing libraries (specifically the Python one). He said that the ANTLR4 grammar is likely to be more robust, but also quite heavyweight for what we are doing, which echoes my experience. He also shared the source code for his fuzzer, and it looks like he rolled his own parsing with some simple matching rules. My sense is that, since I've already spent a bit of time acclimating to the ANTLR4 generated code, that I've mostly paid that complexity cost already, and that we might as well stick with it in case we want to try something more sophisticated down the line. That being said, we can discuss options tomorrow.
+
+One question that came up is with regard to picking new values for the constants... we have a few options:
+
+for e.g. (+ 4 (- x 3))
+
+A. directly substitute : (= 3 (- x 4))
+
+B. constrain directly:  (and (and (= m (- x n)) (= m 3)) (= n 4))
+
+C. let the solver choose:  (and (and (= m (- x n)) (or (= m 4) (= m 3))) ... (not (= m n))
+
+Was one of these specifically what either of you had in mind? Or was there another approach you were thinking of?
+
+In other news, I just heard back from Qirun as well. It looks like I don't quite have access to the repos he shared with me yet, but I will follow up with him to see if we can figure things out. I think it makes sense to focus on the SMT side of things for now until I've had a chance to see what he did.
+
+Looking forward to talking more tomorrow!
+Dylan
