@@ -30,6 +30,8 @@ use antlr_rust::tree::Tree;
 use antlr_rust::tree::{ParseTree, ParseTreeListener, TerminalNodeCtx};
 use smtlibv2lexer::SMTLIBv2Lexer;
 use smtlibv2listener::SMTLIBv2Listener;
+use smtlibv2parser::Cmd_checkSatContext;
+use smtlibv2parser::CommandContextAttrs;
 use smtlibv2parser::IdentifierContextAttrs;
 use smtlibv2parser::Qual_identiferContextAttrs;
 use smtlibv2parser::SMTLIBv2Parser;
@@ -42,6 +44,7 @@ use std::borrow::BorrowMut;
 use std::collections::BTreeMap;
 use std::fs;
 use std::rc::Rc;
+
 enum AST {
     ANTLR_Node(Vec<AST>),
     ANTLR_Terminal(String),
@@ -69,8 +72,7 @@ pub fn exec() {
         counter: 0,
     };
 
-    println!("BEXP {}", listener.bexps.len());
-    let (bav_names, bav_inits) = listener
+    let (bav_names, mut bav_inits) = listener
         .bexps
         .into_iter()
         .map(|term| {
@@ -96,6 +98,26 @@ pub fn exec() {
 
     // this clone might be expensive, not sure if it is recursive
     let mut kids = script.get_children_full().borrow().clone();
+
+    let maybe_cs_pos = kids.iter().position(|pctx| {
+        match pctx
+            .upcast_any()
+            .downcast_ref::<CommandContext>()
+            .and_then(|cmd| cmd.cmd_checkSat())
+        {
+            Some(_) => true,
+            None => false,
+        }
+    });
+
+    match maybe_cs_pos {
+        Some(cs_pos) => {
+            for bav_init in bav_inits {
+                kids.insert(cs_pos, bav_init);
+            }
+        }
+        None => (),
+    }
 
     decls.append(&mut kids);
     script.get_children_full().replace(decls);
