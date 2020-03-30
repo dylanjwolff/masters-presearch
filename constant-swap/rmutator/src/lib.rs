@@ -24,6 +24,7 @@ use itertools::Itertools;
 use rsmt2::SmtConf;
 use smtlibv2lexer::SMTLIBv2Lexer;
 use smtlibv2listener::SMTLIBv2Listener;
+use std::path::PathBuf;
 use std::process::Command;
 use std::str::from_utf8;
 
@@ -39,9 +40,22 @@ use std::fs;
 use std::rc::Rc;
 
 pub fn exec() {
-    let source_file = "ex.smt2";
+    let files = fs::read_dir("samples").expect("error with sample dir");
+
+    for file_res in files {
+        match file_res {
+            Ok(file) => {
+                let filepath = file.path();
+                test_file(&filepath);
+            }
+            Err(_) => (),
+        }
+    }
+}
+
+pub fn test_file(source_filepath: &PathBuf) {
     let smt_ex: String =
-        fs::read_to_string(source_file).expect("Something went wrong reading the file");
+        fs::read_to_string(source_filepath).expect("Something went wrong reading the file");
     let mut _lexer = SMTLIBv2Lexer::new(Box::new(InputStream::new(smt_ex.into())));
     let token_source = CommonTokenStream::new(_lexer);
     let mut parser = SMTLIBv2Parser::new(Box::new(token_source));
@@ -153,7 +167,11 @@ pub fn exec() {
             let mut kids = script.get_children_full().borrow_mut();
             kids[end_insertion_point] = cmd;
             drop(kids); // Not sure why, but borrow checker needs help here
-            let filename = (iterations).to_string() + "_" + source_file;
+            let source_filename = match source_filepath.file_name().and_then(|n| n.to_str()) {
+                Some(name) => name,
+                None => "unknown",
+            };
+            let filename = (iterations).to_string() + "_" + source_filename;
             fs::write(&filename, ast_string(&script));
             solve(&filename);
             iterations = iterations + 1;
@@ -168,28 +186,37 @@ fn solve(filename: &str) {
 
     let z3_res = Command::new("z3").args(&[filename]).output();
 
-    let cvc4_stdout_res = cvc4_res.map(|out| {
-        if !out.status.success() && out.stderr.len() > 0 {
-            println!("cvc4 error on file {}", filename)
-        }
+    let cvc4_stdout_res = cvc4_res
+        .and_then(|out| {
+            if !out.status.success() && out.stderr.len() > 0 {
+                println!("cvc4 error on file {}", filename);
+                Err(std::io::Error::last_os_error()) // really sloppy hack for now, needs to be fixed
+            } else {
+                Ok(out)
+            }
+        })
+        .map(|out| from_utf8(&out.stdout.clone()[..]).map(|s| s.to_string()));
 
-        from_utf8(&out.stdout.clone()[..]).map(|s| s.to_string())
-    });
-
-    let z3_stdout_res = z3_res.map(|out| {
-        if !out.status.success() && out.stderr.len() > 0 {
-            println!("z3 error on file {}", filename)
-        }
-
-        from_utf8(&out.stdout.clone()[..]).map(|s| s.to_string())
-    });
+    let z3_stdout_res = z3_res
+        .and_then(|out| {
+            if !out.status.success() && out.stderr.len() > 0 {
+                println!("z3 error on file {}", filename);
+                Err(std::io::Error::last_os_error()) // really sloppy hack for now, needs to be fixed
+            } else {
+                Ok(out)
+            }
+        })
+        .map(|out| from_utf8(&out.stdout.clone()[..]).map(|s| s.to_string()));
 
     match (cvc4_stdout_res, z3_stdout_res) {
         (Ok(Ok(cvc4_stdout)), Ok(Ok(z3_stdout))) => {
+            // also sloppy hack above
             if cvc4_stdout.contains("unsat") && !z3_stdout.contains("unsat") {
                 println!("file {} has soundness problem!!!", filename);
             } else if cvc4_stdout.contains("sat") && !z3_stdout.contains("sat") {
                 println!("file {} has soundness problem!!!", filename);
+            } else {
+                fs::remove_file(filename);
             }
             ()
         }
