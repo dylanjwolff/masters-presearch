@@ -1,57 +1,47 @@
 #![feature(try_blocks)]
-#![allow(unused_imports)]
-#![allow(warnings, unused)]
+#![feature(rustc_private)]
 extern crate antlr_rust;
+extern crate itertools;
 #[macro_use]
 extern crate lazy_static;
 
 pub mod smtlibv2lexer;
 pub mod smtlibv2listener;
 pub mod smtlibv2parser;
+
 use crate::smtlibv2parser::CommandContext;
-use crate::smtlibv2parser::IdentifierContext;
-use crate::smtlibv2parser::NumeralContextAttrs;
 use crate::smtlibv2parser::Qual_identiferContext;
-use crate::smtlibv2parser::SimpleSymbolContext;
 use crate::smtlibv2parser::Spec_constantContextAttrs;
-use crate::smtlibv2parser::SymbolContext;
 use crate::smtlibv2parser::TermContext;
 use crate::smtlibv2parser::TermContextAttrs;
 use antlr_rust::common_token_stream::CommonTokenStream;
 use antlr_rust::input_stream::InputStream;
 use antlr_rust::parser_rule_context::ParserRuleContextType;
 use antlr_rust::parser_rule_context::{BaseParserRuleContext, ParserRuleContext};
-use antlr_rust::rule_context::CustomRuleContext;
-use antlr_rust::token::OwningToken;
-use antlr_rust::token::{TOKEN_DEFAULT_CHANNEL, TOKEN_MIN_USER_TOKEN_TYPE};
-use antlr_rust::tree::NodeText;
-use antlr_rust::tree::TerminalNode;
 use antlr_rust::tree::Tree;
 use antlr_rust::tree::{ParseTree, ParseTreeListener, TerminalNodeCtx};
+use itertools::Itertools;
+use rsmt2::SmtConf;
 use smtlibv2lexer::SMTLIBv2Lexer;
 use smtlibv2listener::SMTLIBv2Listener;
-use smtlibv2parser::Cmd_checkSatContext;
+use std::process::Command;
+use std::str::from_utf8;
+
 use smtlibv2parser::CommandContextAttrs;
 use smtlibv2parser::IdentifierContextAttrs;
 use smtlibv2parser::Qual_identiferContextAttrs;
 use smtlibv2parser::SMTLIBv2Parser;
-use smtlibv2parser::ScriptContextExt;
 use smtlibv2parser::SimpleSymbolContextAttrs;
 use smtlibv2parser::SymbolContextAttrs;
-use smtlibv2parser::TermContextExt;
-use std::any::Any;
-use std::borrow::BorrowMut;
+
 use std::collections::BTreeMap;
 use std::fs;
 use std::rc::Rc;
 
-enum AST {
-    ANTLR_Node(Vec<AST>),
-    ANTLR_Terminal(String),
-}
 pub fn exec() {
+    let source_file = "ex.smt2";
     let smt_ex: String =
-        fs::read_to_string("ex.smt2").expect("Something went wrong reading the file");
+        fs::read_to_string(source_file).expect("Something went wrong reading the file");
     let mut _lexer = SMTLIBv2Lexer::new(Box::new(InputStream::new(smt_ex.into())));
     let token_source = CommonTokenStream::new(_lexer);
     let mut parser = SMTLIBv2Parser::new(Box::new(token_source));
@@ -72,7 +62,7 @@ pub fn exec() {
         counter: 0,
     };
 
-    let (bav_names, mut bav_inits) = listener
+    let (bav_names, bav_inits) = listener
         .bexps
         .into_iter()
         .map(|term| {
@@ -86,7 +76,7 @@ pub fn exec() {
     let bool_type = vec![SMTlibConst::Bool()];
     let new_bavs = bav_names.iter().zip(bool_type.iter().cycle());
 
-    let mut decls = listener
+    let decls = listener
         .new_vars
         .iter()
         .chain(new_bavs)
@@ -96,10 +86,30 @@ pub fn exec() {
 
     let script: Rc<dyn ParserRuleContext> = result.unwrap();
 
-    // this clone might be expensive, not sure if it is recursive
-    let mut kids = script.get_children_full().borrow().clone();
+    let maybe_sl_pos = script.get_children().iter().position(|pctx| {
+        match pctx
+            .upcast_any()
+            .downcast_ref::<CommandContext>()
+            .and_then(|cmd| cmd.cmd_setLogic())
+        {
+            Some(_) => true,
+            None => false,
+        }
+    });
 
-    let maybe_cs_pos = kids.iter().position(|pctx| {
+    let start_insertion_point = match maybe_sl_pos {
+        Some(sl_pos) => sl_pos + 1,
+        None => 0,
+    };
+
+    for decl in decls {
+        script
+            .get_children_full()
+            .borrow_mut()
+            .insert(start_insertion_point, decl);
+    }
+
+    let maybe_cs_pos = script.get_children().iter().position(|pctx| {
         match pctx
             .upcast_any()
             .downcast_ref::<CommandContext>()
@@ -110,19 +120,94 @@ pub fn exec() {
         }
     });
 
-    match maybe_cs_pos {
-        Some(cs_pos) => {
-            for bav_init in bav_inits {
-                kids.insert(cs_pos, bav_init);
-            }
-        }
-        None => (),
+    let end_insertion_point = match maybe_cs_pos {
+        Some(cs_pos) => cs_pos,
+        None => script.get_children().len(),
+    };
+
+    for bav_init in bav_inits {
+        script
+            .get_children_full()
+            .borrow_mut()
+            .insert(end_insertion_point, bav_init);
     }
 
-    decls.append(&mut kids);
-    script.get_children_full().replace(decls);
+    script
+        .get_children_full()
+        .borrow_mut()
+        .insert(end_insertion_point, cmd_from("(assert true)".to_owned()));
 
-    println!("FINAL: {}", ast_string(&script));
+    let mut iterations = 0;
+    let num_bavs = bav_names.len();
+    for truths in 0..num_bavs + 1 {
+        let mut unordered_tvs = vec![true; truths];
+        unordered_tvs.extend(vec![false; num_bavs - truths]);
+        let truth_value_assigments = unordered_tvs.iter().permutations(num_bavs).unique();
+        for truth_values in truth_value_assigments {
+            let cmd_string = format!(
+                "(assert {})",
+                bam_string(&mut bav_names.iter(), &mut truth_values.iter())
+            );
+
+            let cmd = cmd_from(cmd_string);
+            let mut kids = script.get_children_full().borrow_mut();
+            kids[end_insertion_point] = cmd;
+            drop(kids); // Not sure why, but borrow checker needs help here
+            let filename = (iterations).to_string() + "_" + source_file;
+            fs::write(&filename, ast_string(&script));
+            solve(&filename);
+            iterations = iterations + 1;
+        }
+    }
+}
+
+fn solve(filename: &str) {
+    let cvc4_res = Command::new("cvc4")
+        .args(&[filename, "--produce-model"])
+        .output();
+
+    let z3_res = Command::new("z3").args(&[filename]).output();
+
+    let cvc4_stdout_res = cvc4_res.map(|out| {
+        if !out.status.success() && out.stderr.len() > 0 {
+            println!("cvc4 error on file {}", filename)
+        }
+
+        from_utf8(&out.stdout.clone()[..]).map(|s| s.to_string())
+    });
+
+    let z3_stdout_res = z3_res.map(|out| {
+        if !out.status.success() && out.stderr.len() > 0 {
+            println!("z3 error on file {}", filename)
+        }
+
+        from_utf8(&out.stdout.clone()[..]).map(|s| s.to_string())
+    });
+
+    match (cvc4_stdout_res, z3_stdout_res) {
+        (Ok(Ok(cvc4_stdout)), Ok(Ok(z3_stdout))) => {
+            if cvc4_stdout.contains("unsat") && !z3_stdout.contains("unsat") {
+                println!("file {} has soundness problem!!!", filename);
+            } else if cvc4_stdout.contains("sat") && !z3_stdout.contains("sat") {
+                println!("file {} has soundness problem!!!", filename);
+            }
+            ()
+        }
+        _ => println!("Error with file {}", filename),
+    }
+}
+
+fn bam_string(
+    names: &mut std::slice::Iter<String>,
+    truth_vals: &mut std::slice::Iter<&bool>,
+) -> String {
+    match (names.next(), truth_vals.next()) {
+        (Some(name), Some(truth_val)) => {
+            let sub = bam_string(names, truth_vals);
+            format!("(and (= {} {}) {})", name, truth_val, sub)
+        }
+        _ => "".to_string(),
+    }
 }
 
 fn ast_string(ast: &ParserRuleContextType) -> String {
@@ -146,26 +231,6 @@ fn cmd_from(cmd: String) -> Rc<dyn ParserRuleContext + 'static> {
     let token_source = CommonTokenStream::new(_lexer);
     let mut parser = SMTLIBv2Parser::new(Box::new(token_source));
     parser.command().unwrap()
-}
-
-fn tmnl_ctxt_from(token: &str) -> TerminalNode {
-    let ot = OwningToken {
-        token_type: TOKEN_MIN_USER_TOKEN_TYPE,
-        channel: TOKEN_DEFAULT_CHANNEL,
-        text: token.to_string(),
-        start: -1,
-        stop: -1,
-        line: -1,
-        column: -1,
-        token_index: -1,
-        read_only: false,
-    };
-
-    let tmnl_ctxt = TerminalNodeCtx { symbol: ot };
-
-    // Not clear if -1 is correct here
-    // also if parent can be None
-    BaseParserRuleContext::new_parser_ctx(None, -1, tmnl_ctxt)
 }
 
 #[derive(Debug, Clone)]
@@ -228,8 +293,8 @@ impl SMTLIBv2Listener for Listener {
             None => (),
         };
 
-        let maybe_op = term
-            .qual_identifer()
+        // Assume all ops are wrapped in qi's like this
+        term.qual_identifer()
             .and_then(|qi| qi.identifier())
             .and_then(|i| i.symbol())
             .and_then(|s| s.simpleSymbol())
@@ -242,39 +307,11 @@ impl SMTLIBv2Listener for Listener {
                 _ => (),
             });
     }
-
-    fn exit_simpleSymbol(&mut self, ssc: &SimpleSymbolContext) {
-        println!("SS PDEF {:?}", ssc.predefSymbol());
-        println!("SS UNDEF {:?}", ssc.UndefinedSymbol());
-    }
 }
 
 impl ParseTreeListener for Listener {
-    fn enter_every_rule(&mut self, ctx: &dyn ParserRuleContext) {
-        //        let raw = ctx as *mut dyn ParserRuleContext;
-        //
-        //
-
-        println!(
-            "rule entered {}",
-            smtlibv2parser::ruleNames[ctx.get_rule_index()]
-        );
-
-        match ctx
-            .upcast_any()
-            .downcast_ref::<BaseParserRuleContext<ScriptContextExt>>()
-        {
-            Some(_) => println!("ITS A SCRIPT"),
-            None => (),
-        };
-    }
-
-    fn exit_every_rule(&mut self, ctx: &dyn ParserRuleContext) {
-        println!(
-            "rule exited {}",
-            smtlibv2parser::ruleNames[ctx.get_rule_index()]
-        )
-    }
+    fn enter_every_rule(&mut self, _ctx: &dyn ParserRuleContext) {}
+    fn exit_every_rule(&mut self, _ctx: &dyn ParserRuleContext) {}
 }
 
 #[cfg(test)]
