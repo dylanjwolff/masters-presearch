@@ -64,24 +64,43 @@ pub fn exec() {
     let result = parser.script();
 
     let listener = parser.remove_parse_listener(lid);
+    let mut bav_gen = VarNameGenerator {
+        basename: "BAV".to_string(),
+        counter: 0,
+    };
 
-    listener.bexps.iter().map(|bexp| ast_string(&bexp));
+    println!("BEXP {}", listener.bexps.len());
+    let (bav_names, bav_inits) = listener
+        .bexps
+        .into_iter()
+        .map(|term| {
+            let t: ParserRuleContextType = Rc::new(term);
+            let name = bav_gen.get_name();
+            let cmd = cmd_from(format!("(assert (= {} {}))", name, ast_string(&t)));
+            (name, cmd)
+        })
+        .unzip::<String, ParserRuleContextType, Vec<String>, Vec<ParserRuleContextType>>();
 
-    //    let mut decls = listener
-    //        .new_vars
-    //        .iter()
-    //        .map(|(k, v)| format!("(declare-const {} {})", k, v.typestr()))
-    //        .map(|ds| cmd_from(ds))
-    //        .collect::<Vec<Rc<dyn ParserRuleContext + 'static>>>();
+    let bool_type = vec![SMTlibConst::Bool()];
+    let new_bavs = bav_names.iter().zip(bool_type.iter().cycle());
+
+    let mut decls = listener
+        .new_vars
+        .iter()
+        .chain(new_bavs)
+        .map(|(k, v)| format!("(declare-const {} {})", k, v.typestr()))
+        .map(|ds| cmd_from(ds))
+        .collect::<Vec<Rc<dyn ParserRuleContext + 'static>>>();
 
     let script: Rc<dyn ParserRuleContext> = result.unwrap();
 
-    println!("{}", ast_string(&script));
     // this clone might be expensive, not sure if it is recursive
-    //    let mut kids = script.get_children_full().borrow().clone();
+    let mut kids = script.get_children_full().borrow().clone();
 
-    //    decls.append(&mut kids);
-    //    script.get_children_full().replace(decls);
+    decls.append(&mut kids);
+    script.get_children_full().replace(decls);
+
+    println!("FINAL: {}", ast_string(&script));
 }
 
 fn ast_string(ast: &ParserRuleContextType) -> String {
@@ -132,6 +151,7 @@ enum SMTlibConst {
     Num(i64),
     Dec(f64),
     Str(String),
+    Bool(),
     Bin(), // Will add support later
     Hex(), // ditto
 }
@@ -140,6 +160,7 @@ impl SMTlibConst {
     fn typestr(&self) -> &str {
         match self {
             SMTlibConst::Num(_) => "Int",
+            SMTlibConst::Bool() => "Bool",
             _ => panic!("Unimplemented for non-ints"),
         }
     }
@@ -193,10 +214,9 @@ impl SMTLIBv2Listener for Listener {
             .and_then(|ss| ss.UndefinedSymbol())
             .map(|us| us.get_text())
             .map(|op| match &op[..] {
-                "<" => self.bexps.push((*term).clone()),
-                "=" => self.bexps.push((*term).clone()),
-                "and" => self.bexps.push((*term).clone()),
-                "or" => self.bexps.push((*term).clone()),
+                "<" | "=" | "or" | "and" => self
+                    .bexps
+                    .push(BaseParserRuleContext::copy_from(term, (*term).clone())),
                 _ => (),
             });
     }
