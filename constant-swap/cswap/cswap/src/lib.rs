@@ -33,7 +33,6 @@ use nom::multi::fold_many0;
 use nom::multi::many0;
 use nom::multi::many1;
 use nom::character::complete::digit1;
-use nom::number::complete::be_u64;
 use std::str::from_utf8_unchecked;
 use nom::number::complete::double;
 use nom::character::complete::hex_digit1;
@@ -41,7 +40,7 @@ use nom::combinator::peek;
 
 #[derive(Debug)]
 enum Constant<'a> {
-    UInt(u64),
+    UInt(&'a str),
     Dec(f64),
     Hex(&'a str),
     Bin(Vec<char>),
@@ -56,11 +55,11 @@ enum SExp<'a> {
     Symbol(&'a str),
 }
 
-fn integer(s: &str) -> IResult<&str, u64> {
-    let inner = |(sn, _peek): (&str, ())| {
-        sn.parse::<u64>().unwrap()
-    };
-    map(tuple((digit1, peek(not(char('.'))))), inner)(s)
+fn integer(s: &str) -> IResult<&str, &str> {
+    // let inner = |(sn, _peek): (&str, ())| {
+    //    sn.parse::<u64>().unwrap()
+    // };
+    map(tuple((digit1, peek(not(char('.'))))), |(sn, _)| sn)(s)
 }
 
 fn decimal(s: &str) -> IResult<&str, f64> {
@@ -124,7 +123,7 @@ enum Command<'a> {
     Assert(SExp<'a>),
     GetModel(),
     DeclConst(&'a str, Sort<'a>),
-    Generic(&'a str),
+    Generic(Vec<&'a str>),
 }
 
 #[derive(Debug)]
@@ -155,46 +154,71 @@ fn sort(s: &str) -> IResult<&str, Sort> {
     ))(s)
 }
 
-fn decl_const(s: &str) -> IResult<&str, (&str, Sort)> {
-    let ws_decl = delimited(multispace0, tag("decl-const"), multispace0);
+fn naked_decl_const(s: &str) -> IResult<&str, (&str, Sort)> {
+    let ws_decl = delimited(multispace0, tag("declare-const"), multispace0);
     let ws_symbol = delimited(multispace0, symbol, multispace0);
     let ws_sort = delimited(multispace0, sort, multispace0);
-    let inner = preceded(ws_decl, tuple((ws_symbol, ws_sort)));
-    delimited(char('('), inner, char(')'))(s)
+    preceded(ws_decl, tuple((ws_symbol, ws_sort)))(s)
 }
 
-fn assert(s: &str) -> IResult<&str, SExp> {
+fn naked_assert(s: &str) -> IResult<&str, SExp> {
     let ws_atag = delimited(multispace0, tag("assert"), multispace0);
     let ws_sexp = delimited(multispace0, sexp, multispace0);
-    delimited(char('('), preceded(ws_atag, ws_sexp), char(')'))(s)
+    preceded(ws_atag, ws_sexp)(s)
 }
 
-fn check_sat_assuming(s: &str) -> IResult<&str, SExp> {
+fn naked_csa(s: &str) -> IResult<&str, SExp> {
     let ws_csatag = delimited(multispace0, tag("check-sat-assuming"), multispace0);
     let ws_sexp = delimited(multispace0, sexp, multispace0);
-    delimited(char('('), preceded(ws_csatag, ws_sexp), char(')'))(s)
+    preceded(ws_csatag, ws_sexp)(s)
 }
 
-fn command(s: &str) -> IResult<&str, Command> {
-    let ws_checksat = delimited(multispace0,tag("check-sat"), multispace0);
-    let ws_csa = delimited(multispace0, check_sat_assuming, multispace0);
-    let ws_getmodel = delimited(multispace0, tag("get-model"), multispace0);
-    let ws_setlogic = delimited(multispace0, tag("set-logic"), multispace0);
-    let ws_declconst = delimited(multispace0, decl_const, multispace0);
-    let ws_assert = delimited(multispace0, assert, multispace0);
+fn naked_logic(s: &str) -> IResult<&str, &str> {
+    let ws_ltag = delimited(multispace0, tag("set-logic"), multispace0);
+    let ws_logic = delimited(multispace0, symbol, multispace0);
+    preceded(ws_ltag, ws_logic)(s)
+
+}
+
+fn naked_command(s: &str) -> IResult<&str, Command> {
+    let ws_symbol = delimited(multispace0, symbol, multispace0);
+
     alt((
-        map(ws_assert,    |a| Command::Assert(a)),
-        map(ws_csa,       |a| Command::CheckSatAssuming(a)),
-        map(ws_checksat,  |_| Command::CheckSat()),
-        map(ws_getmodel,  |_| Command::GetModel()),
-        map(ws_setlogic,  |_| Command::Logic()),
-        map(ws_declconst, |(v, s)| Command::DeclConst(v, s)),
+        map(naked_assert,      |a| Command::Assert(a)),
+        map(naked_csa,         |a| Command::CheckSatAssuming(a)),
+        map(tag("check-sat"),  |_| Command::CheckSat()),
+        map(tag("get-model"),  |_| Command::GetModel()),
+        map(naked_logic,       |_| Command::Logic()),
+        map(naked_decl_const,  |(v, s)| Command::DeclConst(v, s)),
+    ))(s)
+}
+
+fn unknown_balanced(s: &str) -> IResult<&str, Vec<&str>> {
+    alt((
+        map(tuple((char('('), many0(unknown_balanced), char(')'))), 
+            |(sb, v, cb)| {
+                let mut vflat = v.concat();
+                vflat.insert(0, "(");
+                vflat.push(")");
+                vflat
+            }),
+        map(take_while1(|c| !(c == '(') && !(c == ')')), |s| vec![s]),
     ))(s)
 }
 
 
+fn command(s: &str) -> IResult<&str, Command> {
+    let ws_ncommand =   delimited(multispace0, naked_command, multispace0);
+    let command =   alt((
+            delimited(char('('), ws_ncommand, char(')')),
+            map(unknown_balanced,  |s| Command::Generic(s)),
+    ));
+    delimited(multispace0, command, multispace0)(s)
+}
+
+
 fn script(s: &str) -> IResult<&str, Vec<Command>> {
-    many0(command)(s)
+    many1(delimited(multispace0, command,multispace0))(s)
 }
 
 
@@ -203,8 +227,8 @@ pub fn exec() {
 
     for file_res in files {
         let file = file_res.expect("problem with file");
+        println!("Starting {:?}", file);
         let filepath = file.path();
-        println!("starting file {:?}", filepath);
         let contents = &fs::read_to_string(filepath).expect("error reading file")[..];
         match script(contents) {
             Ok(_) => (),
@@ -217,9 +241,20 @@ pub fn exec() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
 
     #[test]
+    fn quick_test() {
+       println!("{:?}", unknown_balanced("((declare-fun sin )Real Real() decl)"));
+    }
+    #[test]
     fn smoke_test() {
-        exec();
+       exec();
+    }
+
+    #[test]
+    fn visual_test() {
+        let contents = &fs::read_to_string("ex.smt2").expect("error reading file")[..];
+        println!("Script: {:?}", script(contents));
     }
 }
