@@ -1,42 +1,60 @@
-#![allow(unused_imports)]
-#![allow(warnings, unused)]
-#![allow(dead_code)]
-
 #[macro_use]
 extern crate nom;
 
 use nom::{
-    bytes::complete::{tag, take_while_m_n},
+    bytes::complete::{tag},
     combinator::map,
-    combinator::map_res,
     sequence::tuple,
     IResult,
 };
 
 use std::fs;
-use nom::error::ErrorKind;
 use nom::sequence::delimited;
 use nom::sequence::preceded;
 use nom::character::complete::multispace0;
 use nom::branch::alt;
-use nom::bytes::complete::take_till;
 use nom::bytes::complete::take_while;
 use nom::bytes::complete::take_while1;
-use nom::character::complete::anychar;
 use nom::character::complete::char;
-use nom::character::complete::line_ending;
-use nom::character::is_alphabetic;
-use nom::sequence::terminated;
-use nom::character::complete::not_line_ending;
 use nom::combinator::not;
-use nom::multi::fold_many0;
 use nom::multi::many0;
 use nom::multi::many1;
 use nom::character::complete::digit1;
-use std::str::from_utf8_unchecked;
 use nom::number::complete::double;
 use nom::character::complete::hex_digit1;
 use nom::combinator::peek;
+
+#[derive(Debug)]
+enum Command<'a> {
+    Logic(),
+    CheckSat(),
+    CheckSatAssuming(SExp<'a>),
+    Assert(SExp<'a>),
+    GetModel(),
+    DeclConst(&'a str, Sort<'a>),
+    Generic(Vec<&'a str>),
+}
+
+#[derive(Debug)]
+enum Sort<'a> {
+    UInt(),
+    Dec(),
+    Str(),
+    Bool(),
+//    Hex(),
+//    Bin(),
+    BitVec(),
+    Array(),
+    UserDef(&'a str),
+    Compound(Vec<Sort<'a>>),
+}
+
+#[derive(Debug)]
+enum SExp<'a> {
+    Compound(Vec<SExp<'a>>),
+    Constant(Constant<'a>),
+    Symbol(&'a str),
+}
 
 #[derive(Debug)]
 enum Constant<'a> {
@@ -48,11 +66,66 @@ enum Constant<'a> {
     Bool(bool),
 }
 
-#[derive(Debug)]
-enum SExp<'a> {
-    Generic(Vec<SExp<'a>>),
-    Constant(Constant<'a>),
-    Symbol(&'a str),
+impl<'a> Command<'a> {
+    fn to_string(&'a self) -> String {
+      match self {
+          Command::Logic() => "(set-logic QLIA)".to_string(), // TODO
+          Command::CheckSat() => "(check-sat)".to_string(),
+          Command::CheckSatAssuming(sexp) => ("(check-sat-assuming ".to_owned() + &sexp.to_string()[..] + ")").to_string(), // TODO
+          Command::GetModel() => "(get-model)".to_string(),
+          Command::DeclConst(v, s) => ("(declare-const ".to_string() + v + &s.to_string()[..] + ")").to_string(),
+          Command::Generic(v) => ("(".to_string() + &v.join(" ")[..] + ")").to_string(),
+          Command::Assert(s) => ("(assert".to_string() + &s.to_string()[..] + ")").to_string(),
+      }
+    }
+}
+
+impl<'a> Constant<'a> {
+    fn to_string(&'a self) -> String {
+        match self {
+            Constant::UInt(s) => s.to_string(),
+            Constant::Dec(d) => d.to_string(),
+            Constant::Hex(s) => s.to_string(),
+            Constant::Str(s) => s.to_string(),
+            Constant::Bool(b) => b.to_string(),
+            Constant::Bin(bv) => bv.into_iter().collect(),
+        }
+    }
+}
+
+impl<'a> Sort<'a> {
+    fn to_string(&'a self) -> String {
+        match self {
+            Sort::UInt() => "Int".to_string(),
+            Sort::Dec() =>  "Real".to_string(),
+            Sort::Bool() =>  "Bool".to_string(),
+            Sort::Str() =>  "String".to_string(),
+            Sort::BitVec() =>  "BitVec".to_string(),
+            Sort::Array() =>  "Array".to_string(),
+            Sort::UserDef(s) =>  s.to_string(),
+            Sort::Compound(v) =>  {
+                let mut rec_s : String = v.iter().map(|sort| sort.to_string()).collect();
+                rec_s.insert(0, '(');  // TODO
+                rec_s.push(')'); 
+                rec_s
+            },
+        }
+    }
+}
+
+impl<'a> SExp<'a> {
+    fn to_string(&'a self) -> String {
+        match self {
+            SExp::Constant(c) => c.to_string(),
+            SExp::Symbol(s) =>   s.to_string(),
+            SExp::Compound(v) => {
+                let mut rec_s : String = v.iter().map(|sexp| sexp.to_string()).collect();
+                rec_s.insert(0, '(');  // TODO
+                rec_s.push(')'); 
+                rec_s
+            },
+        }
+    }
 }
 
 fn integer(s: &str) -> IResult<&str, &str> {
@@ -109,35 +182,10 @@ fn sexp(s: &str) -> IResult<&str, SExp> {
     let ws_constant = delimited(multispace0, constant, multispace0);
     let ws_symbol = delimited(multispace0, symbol, multispace0);
     alt((
-        map(ws_rec_sexp, |e| SExp::Generic(e)),
+        map(ws_rec_sexp, |e| SExp::Compound(e)),
         map(ws_constant, |c| SExp::Constant(c)),
         map(ws_symbol,   |s| SExp::Symbol(s)),
     ))(s)
-}
-
-#[derive(Debug)]
-enum Command<'a> {
-    Logic(),
-    CheckSat(),
-    CheckSatAssuming(SExp<'a>),
-    Assert(SExp<'a>),
-    GetModel(),
-    DeclConst(&'a str, Sort<'a>),
-    Generic(Vec<&'a str>),
-}
-
-#[derive(Debug)]
-enum Sort<'a> {
-    UInt(),
-    Dec(),
-    Str(),
-    Bool(),
-    Hex(),
-    Bin(),
-    BitVec(),
-    Array(),
-    UserDef(&'a str),
-    Compound(Vec<Sort<'a>>),
 }
 
 fn sort(s: &str) -> IResult<&str, Sort> {
@@ -181,8 +229,6 @@ fn naked_logic(s: &str) -> IResult<&str, &str> {
 }
 
 fn naked_command(s: &str) -> IResult<&str, Command> {
-    let ws_symbol = delimited(multispace0, symbol, multispace0);
-
     alt((
         map(naked_assert,      |a| Command::Assert(a)),
         map(naked_csa,         |a| Command::CheckSatAssuming(a)),
@@ -196,7 +242,7 @@ fn naked_command(s: &str) -> IResult<&str, Command> {
 fn unknown_balanced(s: &str) -> IResult<&str, Vec<&str>> {
     alt((
         map(tuple((char('('), many0(unknown_balanced), char(')'))), 
-            |(sb, v, cb)| {
+            |(_, v, _)| {
                 let mut vflat = v.concat();
                 vflat.insert(0, "(");
                 vflat.push(")");
@@ -247,14 +293,22 @@ mod tests {
     fn quick_test() {
        println!("{:?}", unknown_balanced("((declare-fun sin )Real Real() decl)"));
     }
+
     #[test]
     fn smoke_test() {
-       exec();
+      // exec();
     }
 
     #[test]
     fn visual_test() {
         let contents = &fs::read_to_string("ex.smt2").expect("error reading file")[..];
         println!("Script: {:?}", script(contents));
+
+        match script(contents) {
+            Ok((_, cmds)) => { 
+                println!("restrung: {}", cmds.iter().map(|cmd| cmd.to_string()).collect::<String>());
+            }
+            _ => ()
+        };
     }
 }
