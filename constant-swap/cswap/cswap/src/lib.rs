@@ -9,6 +9,9 @@ use nom::{
 };
 
 use std::fs;
+use nom::character::complete::not_line_ending;
+use nom::character::complete::line_ending;
+use nom::number::complete::recognize_float;
 use nom::sequence::delimited;
 use nom::sequence::preceded;
 use nom::character::complete::multispace0;
@@ -20,11 +23,16 @@ use nom::combinator::not;
 use nom::multi::many0;
 use nom::multi::many1;
 use nom::character::complete::digit1;
-use nom::number::complete::double;
 use nom::character::complete::hex_digit1;
 use nom::combinator::peek;
 
-#[derive(Debug)]
+
+#[derive(Debug, Eq, PartialEq)]
+enum Script<'a> {
+    Commands(Vec<Command<'a>>),
+}
+
+#[derive(Debug, Eq, PartialEq)]
 enum Command<'a> {
     Logic(),
     CheckSat(),
@@ -35,7 +43,7 @@ enum Command<'a> {
     Generic(Vec<&'a str>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 enum Sort<'a> {
     UInt(),
     Dec(),
@@ -49,21 +57,33 @@ enum Sort<'a> {
     Compound(Vec<Sort<'a>>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 enum SExp<'a> {
     Compound(Vec<SExp<'a>>),
     Constant(Constant<'a>),
     Symbol(&'a str),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 enum Constant<'a> {
     UInt(&'a str),
-    Dec(f64),
+    Dec(&'a str),
     Hex(&'a str),
     Bin(Vec<char>),
     Str(&'a str),
     Bool(bool),
+}
+
+impl<'a> Script<'a> {
+    fn to_string(&'a self) -> String {
+        match self {
+            Script::Commands(cmds) => 
+                cmds.iter()
+                .map(|cmd| cmd.to_string())
+                .collect::<Vec<String>>()
+                .join("\n"),
+        }
+    }
 }
 
 impl<'a> Command<'a> {
@@ -73,9 +93,9 @@ impl<'a> Command<'a> {
           Command::CheckSat() => "(check-sat)".to_string(),
           Command::CheckSatAssuming(sexp) => ("(check-sat-assuming ".to_owned() + &sexp.to_string()[..] + ")").to_string(), // TODO
           Command::GetModel() => "(get-model)".to_string(),
-          Command::DeclConst(v, s) => ("(declare-const ".to_string() + v + &s.to_string()[..] + ")").to_string(),
-          Command::Generic(v) => ("(".to_string() + &v.join(" ")[..] + ")").to_string(),
-          Command::Assert(s) => ("(assert".to_string() + &s.to_string()[..] + ")").to_string(),
+          Command::DeclConst(v, s) => ("(declare-const ".to_string() + v + " " + &s.to_string()[..] + ")").to_string(),
+          Command::Generic(v) => v.join(""),
+          Command::Assert(s) => ("(assert ".to_string() + &s.to_string()[..] + ")").to_string(),
       }
     }
 }
@@ -85,10 +105,16 @@ impl<'a> Constant<'a> {
         match self {
             Constant::UInt(s) => s.to_string(),
             Constant::Dec(d) => d.to_string(),
-            Constant::Hex(s) => s.to_string(),
-            Constant::Str(s) => s.to_string(),
+            Constant::Hex(s) => {
+                "#x".to_string() + &s.to_string()[..]
+            },
+            Constant::Str(s) => {
+                "\"".to_string() + &s.to_string()[..] + "\""
+            },
             Constant::Bool(b) => b.to_string(),
-            Constant::Bin(bv) => bv.into_iter().collect(),
+            Constant::Bin(bv) => {
+                "#b".to_string() + &bv.into_iter().collect::<String>()[..]
+            },
         }
     }
 }
@@ -104,7 +130,7 @@ impl<'a> Sort<'a> {
             Sort::Array() =>  "Array".to_string(),
             Sort::UserDef(s) =>  s.to_string(),
             Sort::Compound(v) =>  {
-                let mut rec_s : String = v.iter().map(|sort| sort.to_string()).collect();
+                let mut rec_s = v.iter().map(|sort| sort.to_string()).collect::<Vec<String>>().join(" ");
                 rec_s.insert(0, '(');  // TODO
                 rec_s.push(')'); 
                 rec_s
@@ -119,7 +145,7 @@ impl<'a> SExp<'a> {
             SExp::Constant(c) => c.to_string(),
             SExp::Symbol(s) =>   s.to_string(),
             SExp::Compound(v) => {
-                let mut rec_s : String = v.iter().map(|sexp| sexp.to_string()).collect();
+                let mut rec_s = v.iter().map(|sexp| sexp.to_string()).collect::<Vec<String>>().join(" ");
                 rec_s.insert(0, '(');  // TODO
                 rec_s.push(')'); 
                 rec_s
@@ -135,8 +161,8 @@ fn integer(s: &str) -> IResult<&str, &str> {
     map(tuple((digit1, peek(not(char('.'))))), |(sn, _)| sn)(s)
 }
 
-fn decimal(s: &str) -> IResult<&str, f64> {
-    double(s)
+fn decimal(s: &str) -> IResult<&str, &str> {
+    recognize_float(s)
 }
 
 fn hex(s: &str) -> IResult<&str, &str> {
@@ -248,6 +274,7 @@ fn unknown_balanced(s: &str) -> IResult<&str, Vec<&str>> {
                 vflat.push(")");
                 vflat
             }),
+        // Trim whitespace here
         map(take_while1(|c| !(c == '(') && !(c == ')')), |s| vec![s]),
     ))(s)
 }
@@ -255,16 +282,28 @@ fn unknown_balanced(s: &str) -> IResult<&str, Vec<&str>> {
 
 fn command(s: &str) -> IResult<&str, Command> {
     let ws_ncommand =   delimited(multispace0, naked_command, multispace0);
-    let command =   alt((
-            delimited(char('('), ws_ncommand, char(')')),
-            map(unknown_balanced,  |s| Command::Generic(s)),
-    ));
-    delimited(multispace0, command, multispace0)(s)
+    let command = delimited(char('('), ws_ncommand, char(')'));
+    alt((
+        delimited(multispace0, command, multispace0),
+        map(unknown_balanced,  |s| Command::Generic(s)),
+    ))(s)
 }
 
 
-fn script(s: &str) -> IResult<&str, Vec<Command>> {
-    many1(delimited(multispace0, command,multispace0))(s)
+fn script(s: &str) -> IResult<&str, Script> {
+    map(
+        many0(delimited(multispace0, command,multispace0)),
+        |cmds| Script::Commands(cmds)
+    )(s)
+}
+
+fn rmv_comments(s: &str) -> IResult<&str, Vec<&str>> {
+    let not_comment = take_while1(|c| !(c == ';'));
+   let comment = delimited(char(';'), not_line_ending, line_ending);
+    many1(alt((
+        not_comment,
+        map(comment, |_| ""),
+    )))(s)
 }
 
 
@@ -276,12 +315,19 @@ pub fn exec() {
         println!("Starting {:?}", file);
         let filepath = file.path();
         let contents = &fs::read_to_string(filepath).expect("error reading file")[..];
-        match script(contents) {
-            Ok(_) => (),
-            Err(e) => panic!("SMT Parse Error {}", e),
+        let contents_ = &rmv_comments(contents).expect("failed to rmv comments").1.join(" ")[..];
+        match (script(contents_), script(contents_)) {
+            (Ok((_, a)), Ok((_, b))) => assert_eq!(a, 
+                                                   script(&b.to_string()[..]).expect("Failed on second parse").1
+                                                   ),
+            (Err(e), _) |
+            (_, Err(e)) => panic!("SMT Parse Error {}", e),
         }
     }
 }
+
+
+
 
 
 #[cfg(test)]
@@ -296,7 +342,7 @@ mod tests {
 
     #[test]
     fn smoke_test() {
-      // exec();
+       // exec();
     }
 
     #[test]
@@ -305,8 +351,8 @@ mod tests {
         println!("Script: {:?}", script(contents));
 
         match script(contents) {
-            Ok((_, cmds)) => { 
-                println!("restrung: {}", cmds.iter().map(|cmd| cmd.to_string()).collect::<String>());
+            Ok((_, script)) => { 
+                println!("restrung: {}", script.to_string());
             }
             _ => ()
         };
